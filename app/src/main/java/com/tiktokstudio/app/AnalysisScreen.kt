@@ -5,6 +5,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -56,7 +57,7 @@ fun AnalysisScreen(info: VideoInfo, onBack: () -> Unit, onEdit: () -> Unit) {
             }
             Sec("المعلومات الفنية")
             val i = r.info
-            Card(Modifier.fillMaxWidth()) {
+            AppCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("الدقة: ${i.resolution} (${if (i.isPortrait) "عمودي" else "أفقي"}) • النسبة ${String.format(Locale.US, "%.2f", i.width.toFloat() / i.height)}")
                     Text("الترميز: ${r.codec}${if (r.hdr) " • HDR" else ""} • الصيغة ${i.mime ?: "-"}")
@@ -67,7 +68,7 @@ fun AnalysisScreen(info: VideoInfo, onBack: () -> Unit, onEdit: () -> Unit) {
             }
             r.timing?.let { t ->
                 Sec("انتظام الإطارات")
-                Card(Modifier.fillMaxWidth()) {
+                AppCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(String.format(Locale.US, "عدد الإطارات: %d • المتوسط %.2f fps • الوسيط %.2f fps", t.frames, t.avgFps, t.medianFps))
                         Text(String.format(Locale.US, "أقصر فاصل %.1f ms • أطول فاصل %.1f ms • غير منتظم %.1f%%", t.minIntervalMs, t.maxIntervalMs, t.irregularPct))
@@ -77,7 +78,7 @@ fun AnalysisScreen(info: VideoInfo, onBack: () -> Unit, onEdit: () -> Unit) {
             }
             if (r.meta.isNotEmpty()) {
                 Sec("البيانات الوصفية")
-                Card(Modifier.fillMaxWidth()) {
+                AppCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         r.meta.forEach { (k, v) -> Text("$k: $v", style = MaterialTheme.typography.bodySmall, color = if (k.startsWith("الموقع")) err else MaterialTheme.colorScheme.onSurface) }
                     }
@@ -86,7 +87,8 @@ fun AnalysisScreen(info: VideoInfo, onBack: () -> Unit, onEdit: () -> Unit) {
 
             Sec("التقرير: المشكلة • الإمكانية • الإجراء")
             r.findings.forEach { f ->
-                Card(Modifier.fillMaxWidth()) {
+                AppCard(Modifier.fillMaxWidth(), border = BorderStroke(1.dp, when (f.level) {
+                    Level.WARN -> err.copy(alpha = 0.55f); Level.OK -> MaterialTheme.colorScheme.tertiary; else -> MaterialTheme.colorScheme.outlineVariant })) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         val mark = when (f.level) { Level.OK -> "✓"; Level.INFO -> "ℹ"; Level.WARN -> "⚠" }
                         Text("$mark ${f.title}", style = MaterialTheme.typography.titleSmall, color = if (f.level == Level.WARN) err else MaterialTheme.colorScheme.onSurface)
@@ -107,7 +109,7 @@ fun AnalysisScreen(info: VideoInfo, onBack: () -> Unit, onEdit: () -> Unit) {
 @Composable
 fun OriginalityCard(a: Analysis) {
     val ctx = LocalContext.current
-    Card(Modifier.fillMaxWidth()) {
+    AppCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("مساعد الأصالة وأهلية النشر", style = MaterialTheme.typography.titleMedium)
             Text("ده إرشاد مبني على الفحص الفني بس. قرار التوصية بيرجع لـ TikTok، ومفيش أداة تقدر تعرفه من الملف. التطبيق مبيضمنش إن الفيديو «مؤهل للتوصية».",

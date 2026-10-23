@@ -10,6 +10,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -56,7 +57,8 @@ fun QueueScreen(onBack: () -> Unit, onCompare: (ExportJob) -> Unit) {
                     }
             }
             val list = if (tab == 0) active else history
-            if (list.isEmpty()) Text(if (tab == 0) "الطابور فاضي. أضف فيديوهات من شاشة التجهيز." else "السجل فاضي.", Modifier.padding(16.dp))
+            if (list.isEmpty()) EmptyState(Icons.Default.History, if (tab == 0) "الطابور فاضي" else "السجل فاضي",
+                if (tab == 0) "أضف فيديوهات من شاشة التجهيز وهتظهر هنا." else "نتايج المعالجة هتظهر هنا.")
             LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(list, key = { it.id }) { JobCard(it, onCompare) }
             }
@@ -68,10 +70,10 @@ fun QueueScreen(onBack: () -> Unit, onCompare: (ExportJob) -> Unit) {
 fun JobCard(j: ExportJob, onCompare: (ExportJob) -> Unit) {
     val ctx = LocalContext.current
     val err = MaterialTheme.colorScheme.error
-    Card(Modifier.fillMaxWidth()) {
+    AppCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(j.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(statusText(j.status), style = MaterialTheme.typography.bodySmall)
+            StatusPill(j.status)
             when (j.status) {
                 JobStatus.RUNNING -> {
                     LinearProgressIndicator(progress = { j.progress }, Modifier.fillMaxWidth())
@@ -154,4 +156,17 @@ fun SettingsScreen(onBack: () -> Unit) {
                 "• قرار التوصية في TikTok بيرجع للمنصة، ومفيش أداة بتضمنه.", style = MaterialTheme.typography.bodySmall)
         }
     }
+}
+
+@Composable
+private fun StatusPill(s: JobStatus) {
+    val cs = MaterialTheme.colorScheme
+    val (bg, fg) = when (s) {
+        JobStatus.QUEUED -> cs.surfaceVariant to cs.onSurfaceVariant
+        JobStatus.RUNNING -> cs.primaryContainer to cs.onPrimaryContainer
+        JobStatus.DONE -> cs.tertiaryContainer to cs.onTertiaryContainer
+        JobStatus.FAILED -> cs.errorContainer to cs.onErrorContainer
+        JobStatus.CANCELLED -> cs.secondaryContainer to cs.onSecondaryContainer
+    }
+    Pill(statusText(s), bg, fg)
 }
