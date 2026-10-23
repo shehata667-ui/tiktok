@@ -41,6 +41,7 @@ fun EditorScreen(info: VideoInfo, batch: List<VideoInfo>, onBack: () -> Unit, on
     var added by remember { mutableStateOf<String?>(null) }
     val plan = remember(s, info) { makePlan(info, s) }
     val others = batch.filter { it.uri != info.uri }
+    val valid = s.trimEndMs - s.trimStartMs >= 500
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { u ->
         if (u != null) {
             ctx.contentResolver.takePersistableUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
@@ -55,30 +56,55 @@ fun EditorScreen(info: VideoInfo, batch: List<VideoInfo>, onBack: () -> Unit, on
             QueueManager.enqueue(v, sv, wm, t)
         }
         if (startNow) { ExportService.start(ctx); onQueued() }
-        else added = "اتضاف ${items.size} للطابور ✓ (الإجمالي في الطابور: ${QueueManager.jobs.count { it.status == JobStatus.QUEUED }})"
+        else added = "اتضاف ${items.size} للطابور (الإجمالي في الطابور: ${QueueManager.jobs.count { it.status == JobStatus.QUEUED }})"
     }
 
     BackHandler(enabled = showWm) { showWm = false }
-    if (showWm) WatermarkScreen(info, s, wm, { wm = it; WmStore.saveLast(ctx, it) }, { showWm = false }) else Scaffold(topBar = {
-        TopAppBar(
-            title = { Text("تجهيز الفيديو", maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "رجوع") } })
-    }) { pad ->
-        Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            // بطاقة الفيديو
-            Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large, colors = CardDefaults.cardColors(containerColor = cs.primaryContainer)) {
-                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    if (showWm) WatermarkScreen(info, s, wm, { wm = it; WmStore.saveLast(ctx, it) }, { showWm = false }) else Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("تجهيز الفيديو", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "رجوع") } })
+        },
+        bottomBar = {
+            Surface(color = cs.surface) { Column {
+                HorizontalDivider(color = cs.outlineVariant)
+                Column(Modifier.navigationBarsPadding().padding(horizontal = Sp.lg, vertical = Sp.md), verticalArrangement = Arrangement.spacedBy(Sp.sm)) {
+                    Button(onClick = { enqueue(listOf(info), true) }, enabled = valid, modifier = Modifier.fillMaxWidth().height(52.dp)) {
+                        Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(6.dp))
+                        Text(if (tree == null) "اختر مجلد الحفظ" else "تصدير الآن")
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(Sp.sm)) {
+                        OutlinedButton(onClick = { enqueue(listOf(info), false) }, enabled = valid && tree != null, modifier = Modifier.weight(1f)) {
+                            Text("للطابور فقط")
+                        }
+                        if (others.isNotEmpty()) FilledTonalButton(onClick = { enqueue(listOf(info) + others, true) }, enabled = valid && tree != null, modifier = Modifier.weight(1f)) {
+                            Text("كل المحدد (${others.size + 1})")
+                        }
+                    }
+                }
+            } }
+        }
+    ) { pad ->
+        Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(Sp.lg), verticalArrangement = Arrangement.spacedBy(Sp.lg)) {
+            AppCard(Modifier.fillMaxWidth()) {
+                Row(Modifier.padding(Sp.md), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Sp.md)) {
                     Thumb(info.uri, 76.dp)
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(info.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis, color = cs.onPrimaryContainer)
-                        Text("${info.resolution} • ${info.fpsText}", style = MaterialTheme.typography.bodySmall, color = cs.onPrimaryContainer)
-                        Text("${info.durationText} • ${info.sizeText}", style = MaterialTheme.typography.bodySmall, color = cs.onPrimaryContainer)
+                        Text(info.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text("${info.resolution} • ${info.fpsText}", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                        Text("${info.durationText} • ${info.sizeText}", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
                     }
                 }
             }
 
-            Panel("المقاس والإطار", Icons.Default.Crop) {
-                Text("المقاس", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+            FilledTonalButton(
+                onClick = { s = s.copy(preset = Preset.BEST, quality = Quality.EFFICIENT, codec = Codec.AUTO, fpsCap = 0, cfrFps = 0) },
+                modifier = Modifier.fillMaxWidth().height(48.dp)
+            ) { Icon(Icons.Default.HighQuality, null); Spacer(Modifier.width(8.dp)); Text("أقصى جودة بأقل حجم (موصى به)") }
+
+            Panel("الدقة والإطار", Icons.Default.Crop) {
+                Text("الدقة", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
                 Chips(Preset.entries, s.preset, { it.label }, true) { s = s.copy(preset = it) }
                 Text("طريقة الملء", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
                 Chips(FitMode.entries, s.mode, { it.label }, true) { s = s.copy(mode = it) }
@@ -92,21 +118,24 @@ fun EditorScreen(info: VideoInfo, batch: List<VideoInfo>, onBack: () -> Unit, on
             }
 
             Panel("الجودة والحجم", Icons.Default.HighQuality) {
+                Text("الترميز", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                Chips(Codec.entries, s.codec, { it.label }, true) { s = s.copy(codec = it) }
+                Text("مستوى الجودة", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
                 Chips(Quality.entries, s.quality, { it.label }, true) { s = s.copy(quality = it) }
                 if (s.quality == Quality.CUSTOM) {
                     Text(String.format(Locale.US, "معدل بت الفيديو: %.1f Mbps", s.customMbps))
-                    Slider(value = s.customMbps, onValueChange = { s = s.copy(customMbps = it) }, valueRange = 1f..20f)
+                    Slider(value = s.customMbps, onValueChange = { s = s.copy(customMbps = it) }, valueRange = 1f..60f)
                 }
                 if (s.quality == Quality.TARGET) {
                     Text("الحجم المستهدف: ${s.targetMb} MB (تقريبي)")
-                    Slider(value = s.targetMb.toFloat(), onValueChange = { s = s.copy(targetMb = it.toInt()) }, valueRange = 5f..500f)
+                    Slider(value = s.targetMb.toFloat(), onValueChange = { s = s.copy(targetMb = it.toInt()) }, valueRange = 5f..1000f)
                 }
                 val f = info.fps
                 val fpsOptions = buildList { add(0); if (f != null && f > 31) add(30); if (f != null && f > 61) add(60) }
-                if (fpsOptions.size > 1) {
-                    Text("معدل الإطارات (تخفيض فقط، مفيش تكرار إطارات)", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
-                    Chips(fpsOptions, s.fpsCap, { if (it == 0) "الأصلي" else "$it fps" }, true) { s = s.copy(fpsCap = it) }
-                }
+                Text("معدل الإطارات", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                Chips(fpsOptions, s.fpsCap, { if (it == 0) "الأصلي (حتى 60)" else "$it fps" }, true) { s = s.copy(fpsCap = it) }
+                if (f != null && f < 59f) Banner(BannerKind.Info,
+                    "الفيديو الأصلي ${f.toInt()} fps. التطبيق مبيزودش إطارات مصطنعة، فمستحيل نطلّع 60 fps حقيقية من مصدر أقل. لو صوّرت بـ 60 fps هتتحافظ عليها.")
             }
 
             Panel("القص والصوت", Icons.Default.ContentCut) {
@@ -126,7 +155,7 @@ fun EditorScreen(info: VideoInfo, batch: List<VideoInfo>, onBack: () -> Unit, on
                 val ana = AnalysisCache.get(info.uri)
                 val cfrTarget = Math.round(ana?.timing?.medianFps ?: info.fps ?: 30f).coerceIn(15, 60)
                 SwitchRow("تثبيت معدل الإطارات CFR ($cfrTarget fps)", s.cfrFps > 0) { s = s.copy(cfrFps = if (it) cfrTarget else 0) }
-                if (ana?.timing?.isVfr == true) Text("الفحص لقى إن المصدر VFR؛ يُنصح بتفعيل CFR لتقليل احتمال التقطيع.", color = cs.error, style = MaterialTheme.typography.bodySmall)
+                if (ana?.timing?.isVfr == true) Banner(BannerKind.Warning, "الفحص لقى إن المصدر VFR؛ يُنصح بتفعيل CFR لتقليل احتمال التقطيع.")
                 Text("CFR بيسقط إطارات للوصول للمعدل ولا بيكرر إطارات، وممكن يغيّر الحجم شوية. التقرير بعد التصدير بيوضح النتيجة الفعلية.", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
                 SwitchRow("مسح بيانات الموقع من الناتج", s.stripMeta) { s = s.copy(stripMeta = it) }
             }
@@ -139,35 +168,25 @@ fun EditorScreen(info: VideoInfo, batch: List<VideoInfo>, onBack: () -> Unit, on
             }
 
             Panel("الناتج المتوقع", Icons.Default.Info) {
-                Text(String.format(Locale.US, "%d×%d • فيديو %.1f Mbps", plan.outW, plan.outH, plan.videoBps / 1e6), style = MaterialTheme.typography.titleSmall)
-                Text("الحجم التقريبي ${formatSize(plan.estBytes)} (الأصل ${info.sizeText})")
-                plan.notes.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall, color = cs.secondary) }
-                Text("الترميز: H.264 + AAC. الحجم النهائي تقريبي.", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                KV("الدقة", "${plan.outW}×${plan.outH}")
+                KV("الترميز", plan.codecLabel)
+                KV("معدل الإطارات", String.format(Locale.US, "%.0f fps", plan.outFps))
+                KV("معدل بت الفيديو", String.format(Locale.US, "%.1f Mbps", plan.videoBps / 1e6))
+                KV("الحجم التقريبي", "${formatSize(plan.estBytes)} (الأصل ${info.sizeText})")
+                plan.notes.forEach { Banner(BannerKind.Info, it) }
+                Text("الحجم النهائي تقريبي، والجودة الفعلية بتتوقف على محتوى الفيديو. التقرير بعد التصدير بيوضح النتيجة.", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
             }
 
-            Panel("الحفظ والتصدير", Icons.Default.Folder) {
+            Panel("مكان الحفظ", Icons.Default.Folder) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val name = tree?.let { DocumentFile.fromTreeUri(ctx, it)?.name } ?: "لم يتم الاختيار"
-                    Text("مجلد الحفظ: $name", Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(name, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     TextButton(onClick = { picker.launch(null) }) { Text(if (tree == null) "اختيار" else "تغيير") }
                 }
-                val valid = s.trimEndMs - s.trimStartMs >= 500
-                Button(onClick = { enqueue(listOf(info), true) }, enabled = valid, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                    Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(6.dp))
-                    Text(if (tree == null) "اختر مجلد الحفظ" else "تصدير الآن")
-                }
-                OutlinedButton(onClick = { enqueue(listOf(info), false) }, enabled = valid && tree != null, modifier = Modifier.fillMaxWidth()) {
-                    Text("إضافة للطابور فقط")
-                }
-                if (others.isNotEmpty()) {
-                    FilledTonalButton(onClick = { enqueue(listOf(info) + others, true) }, enabled = valid && tree != null, modifier = Modifier.fillMaxWidth()) {
-                        Text("معالجة كل المحدد (${others.size + 1}) بنفس الإعدادات")
-                    }
-                    Text("الإعدادات (المقاس والجودة والعلامة) بتتطبق على كل فيديو، والقص الزمني للفيديو ده بس.", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
-                }
-                added?.let { Text(it, color = cs.tertiary) }
+                if (others.isNotEmpty()) Text("«كل المحدد» بتطبّق نفس الإعدادات على كل فيديو، والقص الزمني للفيديو ده بس.", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                added?.let { Banner(BannerKind.Success, it) }
             }
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(Sp.sm))
         }
     }
 }
@@ -184,7 +203,7 @@ fun shareVideo(ctx: android.content.Context, uri: Uri) = runCatching {
 }
 
 @Composable
-fun Sec(t: String) = Text(t, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+fun Sec(t: String) = Text(t, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable

@@ -6,6 +6,11 @@ import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -29,79 +34,85 @@ import java.util.Locale
 @Composable
 fun AnalysisScreen(info: VideoInfo, onBack: () -> Unit, onEdit: () -> Unit) {
     val ctx = LocalContext.current
+    val cs = MaterialTheme.colorScheme
+    var failed by remember { mutableStateOf(false) }
     val a by produceState<Analysis?>(AnalysisCache.get(info.uri), info.uri) {
         if (value == null) {
-            value = withContext(Dispatchers.IO) { runCatching { analyzeVideo(ctx, info) }.onFailure { AppLog.e(ctx, "analyze failed", it) }.getOrNull() }
-            value?.let { AnalysisCache.put(info.uri, it) }
+            val res = withContext(Dispatchers.IO) { runCatching { analyzeVideo(ctx, info) }.onFailure { AppLog.e(ctx, "analyze failed", it) }.getOrNull() }
+            value = res
+            if (res != null) AnalysisCache.put(info.uri, res) else failed = true
         }
     }
-    var done by remember { mutableStateOf(false) }
-    LaunchedEffect(a) { if (a != null) done = true }
-    val err = MaterialTheme.colorScheme.error
     Scaffold(topBar = {
-        TopAppBar(title = { Text("فحص: ${info.name}", maxLines = 1) },
+        TopAppBar(title = { Text("فحص الفيديو") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "رجوع") } })
     }) { pad ->
         val r = a
         if (r == null) {
-            Column(Modifier.padding(pad).fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                CircularProgressIndicator()
-                Spacer(Modifier.height(12.dp))
-                Text(if (done) "تعذّر فحص الفيديو. شوف سجل الأخطاء في الإعدادات." else "بيتحلل الفيديو... ممكن ياخد ثواني للفيديوهات الطويلة.", textAlign = TextAlign.Center)
+            Box(Modifier.padding(pad).fillMaxSize()) {
+                if (failed) EmptyState(Icons.Default.Warning, "تعذّر فحص الفيديو", "شوف سجل الأخطاء في الإعدادات.", Modifier.align(Alignment.Center))
+                else LoadingState("بيتحلل الفيديو... ممكن ياخد ثواني للفيديوهات الطويلة.")
             }
-        } else Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        } else Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(Sp.lg), verticalArrangement = Arrangement.spacedBy(Sp.lg)) {
             r.frame?.let { fr ->
                 val shown = remember(r) { drawBoxes(fr, r.overlays, r.qr) }
-                Image(shown.asImageBitmap(), "إطار من الفيديو", Modifier.fillMaxWidth().heightIn(max = 300.dp), contentScale = ContentScale.Fit)
-                Text("الأحمر: موضع محتمل لشعار أو علامة (تقديري) • الأزرق: رمز QR", style = MaterialTheme.typography.bodySmall)
-            }
-            Sec("المعلومات الفنية")
-            val i = r.info
-            AppCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("الدقة: ${i.resolution} (${if (i.isPortrait) "عمودي" else "أفقي"}) • النسبة ${String.format(Locale.US, "%.2f", i.width.toFloat() / i.height)}")
-                    Text("الترميز: ${r.codec}${if (r.hdr) " • HDR" else ""} • الصيغة ${i.mime ?: "-"}")
-                    Text("المدة: ${i.durationText} • الحجم: ${i.sizeText}")
-                    Text("معدل البت: " + (i.bitrateBps?.let { String.format(Locale.US, "%.1f Mbps", it / 1e6) } ?: "غير معروف") + " • الصوت: ${if (i.hasAudioGuess) "موجود" else "غير موجود"}")
-                    Text("معدل الإطارات المعلن: ${i.fpsText} • التدوير: ${i.rotation}°")
+                AppCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(Sp.md), verticalArrangement = Arrangement.spacedBy(Sp.sm)) {
+                        Image(shown.asImageBitmap(), "إطار من الفيديو", Modifier.fillMaxWidth().heightIn(max = 300.dp).clip(MaterialTheme.shapes.medium), contentScale = ContentScale.Fit)
+                        Text("الأحمر: موضع محتمل لشعار أو علامة (تقديري) • الأزرق: رمز QR", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                    }
                 }
+            }
+            val i = r.info
+            Panel("المعلومات الفنية", Icons.Default.Info) {
+                KV("الدقة", "${i.resolution} (${if (i.isPortrait) "عمودي" else "أفقي"})")
+                KV("النسبة", String.format(Locale.US, "%.2f", i.width.toFloat() / i.height))
+                KV("الترميز", r.codec + if (r.hdr) " • HDR" else "")
+                KV("المدة والحجم", "${i.durationText} • ${i.sizeText}")
+                KV("معدل البت", i.bitrateBps?.let { String.format(Locale.US, "%.1f Mbps", it / 1e6) } ?: "غير معروف")
+                KV("معدل الإطارات المعلن", i.fpsText)
+                KV("الصوت", if (i.hasAudioGuess) "موجود" else "غير موجود")
+                KV("التدوير", "${i.rotation}°")
             }
             r.timing?.let { t ->
-                Sec("انتظام الإطارات")
-                AppCard(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(String.format(Locale.US, "عدد الإطارات: %d • المتوسط %.2f fps • الوسيط %.2f fps", t.frames, t.avgFps, t.medianFps))
-                        Text(String.format(Locale.US, "أقصر فاصل %.1f ms • أطول فاصل %.1f ms • غير منتظم %.1f%%", t.minIntervalMs, t.maxIntervalMs, t.irregularPct))
-                        Text(if (t.isVfr) "النوع: VFR (متغير)" else "النوع: قريب من CFR (ثابت)")
-                    }
+                Panel("انتظام الإطارات", Icons.Default.Tune) {
+                    KV("عدد الإطارات", "${t.frames}")
+                    KV("المتوسط / الوسيط", String.format(Locale.US, "%.2f / %.2f fps", t.avgFps, t.medianFps))
+                    KV("أقصر / أطول فاصل", String.format(Locale.US, "%.1f / %.1f ms", t.minIntervalMs, t.maxIntervalMs))
+                    KV("غير منتظم", String.format(Locale.US, "%.1f%%", t.irregularPct))
+                    KV("النوع", if (t.isVfr) "VFR (متغير)" else "قريب من CFR (ثابت)")
                 }
             }
-            if (r.meta.isNotEmpty()) {
-                Sec("البيانات الوصفية")
-                AppCard(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        r.meta.forEach { (k, v) -> Text("$k: $v", style = MaterialTheme.typography.bodySmall, color = if (k.startsWith("الموقع")) err else MaterialTheme.colorScheme.onSurface) }
-                    }
-                }
+            if (r.meta.isNotEmpty()) Panel("البيانات الوصفية", Icons.Default.Info) {
+                r.meta.forEach { (k, v) -> KV(k, v) }
             }
 
-            Sec("التقرير: المشكلة • الإمكانية • الإجراء")
+            Text("نتيجة الفحص", style = MaterialTheme.typography.titleMedium)
+            val warn = LocalWarn.current
             r.findings.forEach { f ->
-                AppCard(Modifier.fillMaxWidth(), border = BorderStroke(1.dp, when (f.level) {
-                    Level.WARN -> err.copy(alpha = 0.55f); Level.OK -> MaterialTheme.colorScheme.tertiary; else -> MaterialTheme.colorScheme.outlineVariant })) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        val mark = when (f.level) { Level.OK -> "✓"; Level.INFO -> "ℹ"; Level.WARN -> "⚠" }
-                        Text("$mark ${f.title}", style = MaterialTheme.typography.titleSmall, color = if (f.level == Level.WARN) err else MaterialTheme.colorScheme.onSurface)
-                        Text(f.detail, style = MaterialTheme.typography.bodySmall)
-                        if (f.fix != Fix.NONE) Text("التصنيف: ${f.fix.label}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                        Text("الإجراء المقترح: ${f.action}", style = MaterialTheme.typography.bodySmall)
+                AppCard(Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(Sp.md), horizontalArrangement = Arrangement.spacedBy(Sp.md)) {
+                        val (icon, tint) = when (f.level) {
+                            Level.OK -> Icons.Default.CheckCircle to cs.tertiary
+                            Level.INFO -> Icons.Default.Info to cs.primary
+                            Level.WARN -> Icons.Default.Warning to warn.fg
+                        }
+                        Icon(icon, null, Modifier.size(22.dp), tint = tint)
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(f.title, style = MaterialTheme.typography.titleSmall)
+                            Text(f.detail, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                            if (f.fix != Fix.NONE) Pill(f.fix.label, cs.surfaceVariant, cs.onSurfaceVariant)
+                            Text(f.action, style = MaterialTheme.typography.bodySmall)
+                        }
                     }
                 }
             }
-            Text("الفحص البصري (الشعارات، الأشرطة، QR) تقديري من 5 إلى 8 إطارات بس، وممكن يفوّت حاجات أو يغلط.", style = MaterialTheme.typography.bodySmall)
-            Button(onClick = onEdit, Modifier.fillMaxWidth()) { Text("تجهيز الفيديو") }
+            Text("الفحص البصري (الشعارات، الأشرطة، QR) تقديري من 5 إلى 8 إطارات بس، وممكن يفوّت حاجات أو يغلط.", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+            Button(onClick = onEdit, Modifier.fillMaxWidth().height(52.dp)) {
+                Icon(Icons.Default.Tune, null); Spacer(Modifier.width(6.dp)); Text("تجهيز الفيديو")
+            }
             OriginalityCard(r)
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(Sp.lg))
         }
     }
 }
@@ -109,21 +120,20 @@ fun AnalysisScreen(info: VideoInfo, onBack: () -> Unit, onEdit: () -> Unit) {
 @Composable
 fun OriginalityCard(a: Analysis) {
     val ctx = LocalContext.current
-    AppCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("مساعد الأصالة وأهلية النشر", style = MaterialTheme.typography.titleMedium)
-            Text("ده إرشاد مبني على الفحص الفني بس. قرار التوصية بيرجع لـ TikTok، ومفيش أداة تقدر تعرفه من الملف. التطبيق مبيضمنش إن الفيديو «مؤهل للتوصية».",
-                color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-            Text("أفكار تضيف قيمة حقيقية:")
-            Text("• تعليق صوتي أصلي بصوتك\n• شرح أو تحليل خاص بيك للمحتوى\n• معلومات مفيدة أو سياق جديد\n• مقدمة وخاتمة أصليتين\n• راجع حقوق استخدام الفيديو والموسيقى قبل النشر", style = MaterialTheme.typography.bodyMedium)
-            if (a.overlays.isNotEmpty() || !a.qr.isNullOrEmpty())
-                Text("الفحص لقى عناصر ممكن تخص مصدر تاني (شعار أو QR). التطبيق مبيشيلها ومبيضيفش تشويش أو تغييرات شكلية للتحايل على اكتشاف إعادة النشر. لو الفيديو مش بتاعك، خد إذن صاحبه أو استخدم محتواك.",
-                    style = MaterialTheme.typography.bodySmall)
-            Text("المتطلبات بتتغير، فراجعها من المصدر الرسمي (محتاج إنترنت).", style = MaterialTheme.typography.bodySmall)
-            OutlinedButton(onClick = {
-                runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.tiktok.com/community-guidelines")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-            }) { Text("إرشادات TikTok الرسمية") }
-        }
+    Panel("مساعد الأصالة وأهلية النشر", Icons.Default.Info) {
+        Banner(BannerKind.Warning, "ده إرشاد مبني على الفحص الفني بس. قرار التوصية بيرجع لـ TikTok، ومفيش أداة تقدر تعرفه من الملف. التطبيق مبيضمنش إن الفيديو «مؤهل للتوصية».")
+        Text("أفكار تضيف قيمة حقيقية", style = MaterialTheme.typography.titleSmall)
+        Bullet("تعليق صوتي أصلي بصوتك")
+        Bullet("شرح أو تحليل خاص بيك للمحتوى")
+        Bullet("معلومات مفيدة أو سياق جديد")
+        Bullet("مقدمة وخاتمة أصليتين")
+        Bullet("راجع حقوق استخدام الفيديو والموسيقى قبل النشر")
+        if (a.overlays.isNotEmpty() || !a.qr.isNullOrEmpty())
+            Banner(BannerKind.Info, "الفحص لقى عناصر ممكن تخص مصدر تاني (شعار أو QR). التطبيق مبيشيلها ومبيضيفش تشويش أو تغييرات شكلية للتحايل على اكتشاف إعادة النشر. لو الفيديو مش بتاعك، خد إذن صاحبه أو استخدم محتواك.")
+        Text("المتطلبات بتتغير، فراجعها من المصدر الرسمي (محتاج إنترنت).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        OutlinedButton(onClick = {
+            runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.tiktok.com/community-guidelines")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        }) { Text("إرشادات TikTok الرسمية") }
     }
 }
 

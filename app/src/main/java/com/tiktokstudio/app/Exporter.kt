@@ -40,12 +40,10 @@ object Exporter {
                 if (s.trimEndMs < info.durationMs - 100) setEndPositionMs(s.trimEndMs)
             }.build()
             val item = MediaItem.Builder().setUri(info.uri).setClippingConfiguration(clip).build()
-            val capTo = if (s.cfrFps > 0) s.cfrFps else s.fpsCap
-            val capFps = capTo > 0 && (s.cfrFps > 0 || (info.fps ?: 0f) > capTo + 1)
             val edited = EditedMediaItem.Builder(item)
                 .setRemoveAudio(s.mute)
                 .setEffects(Effects(emptyList(), buildVideoEffects(info, s, plan, overlay)))
-                .apply { if (capFps) setFrameRate(capTo) }
+                .apply { if (plan.applyFps > 0) setFrameRate(plan.applyFps) }
                 .build()
             val enc = DefaultEncoderFactory.Builder(ctx)
                 .setRequestedVideoEncoderSettings(VideoEncoderSettings.Builder().setBitrate(plan.videoBps).build())
@@ -53,7 +51,7 @@ object Exporter {
             val t0 = SystemClock.elapsedRealtime()
             val err = suspendCancellableCoroutine<ExportException?> { cont ->
                 val t = Transformer.Builder(ctx)
-                    .setVideoMimeType(MimeTypes.VIDEO_H264).setAudioMimeType(MimeTypes.AUDIO_AAC)
+                    .setVideoMimeType(plan.mime).setAudioMimeType(MimeTypes.AUDIO_AAC)
                     .setEncoderFactory(enc)
                     .addListener(object : Transformer.Listener {
                         override fun onCompleted(composition: Composition, exportResult: ExportResult) { if (cont.isActive) cont.resume(null) }
@@ -78,7 +76,7 @@ object Exporter {
             }
             onProgress(1f, SystemClock.elapsedRealtime() - t0, 0, "جاري فحص الملف وحفظه...")
             if (s.stripMeta) withContext(Dispatchers.IO) { runCatching { stripLocation(out.absolutePath) }.onFailure { AppLog.e(ctx, "strip location failed", it) } }
-            val expFps = if (capFps) capTo.toFloat() else info.fps
+            val expFps: Float? = plan.outFps
             val report = withContext(Dispatchers.IO) {
                 verifyOutput(out.absolutePath, plan.durationMs, !s.mute && info.hasAudioGuess, plan.outW, plan.outH, expFps, s.stripMeta)
             }

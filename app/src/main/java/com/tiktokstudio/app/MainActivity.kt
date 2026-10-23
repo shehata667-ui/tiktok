@@ -10,6 +10,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -29,7 +34,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -76,52 +80,64 @@ fun AppRoot(vm: VideosViewModel = viewModel()) {
     BackHandler(enabled = screen != Screen.Home) {
         screen = when (screen) { Screen.Editor, Screen.Analysis -> Screen.Videos; Screen.Compare -> Screen.Queue; else -> Screen.Home }
     }
-    when (screen) {
-        Screen.Home -> HomeScreen(vm.videos.size,
-            QueueManager.jobs.count { it.status == JobStatus.QUEUED || it.status == JobStatus.RUNNING },
-            { screen = Screen.Videos }, { screen = Screen.Queue }, { screen = Screen.Settings })
-        Screen.Videos -> VideosScreen(vm, { screen = Screen.Home }, { analyzing = it; screen = Screen.Analysis }) { editing = it; screen = Screen.Editor }
-        Screen.Editor -> editing?.let { e ->
-            EditorScreen(e, vm.videos.filter { it.uri in vm.selected }, { screen = Screen.Videos }, { screen = Screen.Queue })
+    AnimatedContent(
+        targetState = screen,
+        transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(120)) },
+        label = "nav",
+    ) { target ->
+        when (target) {
+            Screen.Home -> HomeScreen(
+                vm.videos.size,
+                QueueManager.jobs.count { it.status == JobStatus.QUEUED || it.status == JobStatus.RUNNING },
+                QueueManager.jobs.count { it.status == JobStatus.DONE },
+                { screen = Screen.Videos }, { screen = Screen.Queue }, { screen = Screen.Settings })
+            Screen.Videos -> VideosScreen(vm, { screen = Screen.Home }, { analyzing = it; screen = Screen.Analysis }) { editing = it; screen = Screen.Editor }
+            Screen.Editor -> editing?.let { e ->
+                EditorScreen(e, vm.videos.filter { it.uri in vm.selected }, { screen = Screen.Videos }, { screen = Screen.Queue })
+            }
+            Screen.Queue -> QueueScreen({ screen = Screen.Home }) { comparing = it; screen = Screen.Compare }
+            Screen.Analysis -> analyzing?.let { a -> AnalysisScreen(a, { screen = Screen.Videos }) { editing = a; screen = Screen.Editor } }
+            Screen.Compare -> comparing?.let { c -> CompareScreen(c) { screen = Screen.Queue } }
+            Screen.Settings -> SettingsScreen { screen = Screen.Home }
         }
-        Screen.Queue -> QueueScreen({ screen = Screen.Home }) { comparing = it; screen = Screen.Compare }
-        Screen.Analysis -> analyzing?.let { a -> AnalysisScreen(a, { screen = Screen.Videos }) { editing = a; screen = Screen.Editor } }
-        Screen.Compare -> comparing?.let { c -> CompareScreen(c) { screen = Screen.Queue } }
-        Screen.Settings -> SettingsScreen { screen = Screen.Home }
     }
 }
 
 @Composable
-fun HomeScreen(videoCount: Int, activeJobs: Int, onVideos: () -> Unit, onQueue: () -> Unit, onSettings: () -> Unit) {
+fun HomeScreen(videoCount: Int, activeJobs: Int, doneJobs: Int, onVideos: () -> Unit, onQueue: () -> Unit, onSettings: () -> Unit) {
     val cs = MaterialTheme.colorScheme
-    Column(Modifier.fillMaxSize().background(cs.background).navigationBarsPadding().verticalScroll(rememberScrollState())) {
-        Box(
-            Modifier.fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(cs.primaryContainer, cs.background)))
-                .statusBarsPadding().padding(start = 24.dp, end = 24.dp, top = 32.dp, bottom = 28.dp)
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(
-                    Modifier.size(68.dp).clip(RoundedCornerShape(22.dp))
-                        .background(Brush.linearGradient(listOf(cs.primary, cs.secondary))),
-                    contentAlignment = Alignment.Center
-                ) { Icon(Icons.Default.VideoLibrary, null, Modifier.size(36.dp), tint = Color.White) }
-                Spacer(Modifier.height(4.dp))
-                Text("TikTok Video Studio", style = MaterialTheme.typography.headlineMedium)
-                Text("جهّز فيديوهاتك للنشر بجودة عالية وبدون تقطيع", style = MaterialTheme.typography.bodyLarge, color = cs.onSurfaceVariant)
+    Column(
+        Modifier.fillMaxSize().background(cs.background).statusBarsPadding().navigationBarsPadding()
+            .verticalScroll(rememberScrollState()).padding(horizontal = Sp.lg, vertical = Sp.xl),
+        verticalArrangement = Arrangement.spacedBy(Sp.lg),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Sp.md)) {
+            Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(cs.primary), contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.PlayArrow, null, tint = cs.onPrimary)
+            }
+            Column {
+                Text("TikTok Video Studio", style = MaterialTheme.typography.titleMedium)
+                Text("تجهيز الفيديو للنشر", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
             }
         }
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            ActionCard(Icons.Default.VideoLibrary, "الفيديوهات",
-                if (videoCount == 0) "اختار فيديوهات من هاتفك وابدأ" else "$videoCount فيديو في القائمة", cs.primary, 0, onVideos)
-            ActionCard(Icons.Default.History, "المعالجة والسجل",
-                if (activeJobs > 0) "$activeJobs قيد المعالجة أو الانتظار" else "الطابور والنتائج الجاهزة", cs.secondary, activeJobs, onQueue)
-            ActionCard(Icons.Default.Settings, "الإعدادات", "مجلد الحفظ وسجل الأخطاء", cs.tertiary, 0, onSettings)
-            Panel("إزاي تبدأ؟", Icons.Default.Info) {
-                Text("١. اختار فيديو أو أكتر من هاتفك.\n٢. اضغط «فحص» لتشوف مشاكل الفيديو، ثم «تجهيز» لضبط المقاس والجودة والعلامة المائية.\n٣. صدّر، وهتلاقي النتيجة في «المعالجة والسجل».",
-                    style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
-            }
+        Spacer(Modifier.height(Sp.sm))
+        Text("جاهز تجهّز فيديو جديد؟", style = MaterialTheme.typography.headlineMedium)
+        Text("اختار الفيديوهات، افحصها، وصدّرها بمقاس وجودة مناسبين لـ TikTok.", style = MaterialTheme.typography.bodyLarge, color = cs.onSurfaceVariant)
+        HeroCard(
+            if (videoCount == 0) "اختيار الفيديوهات" else "متابعة الفيديوهات",
+            if (videoCount == 0) "ابدأ بإضافة فيديو من هاتفك" else "$videoCount فيديو في القائمة",
+            Icons.Default.VideoLibrary, onVideos)
+        Row(horizontalArrangement = Arrangement.spacedBy(Sp.md)) {
+            StatTile("$videoCount", "فيديو", Modifier.weight(1f))
+            StatTile("$activeJobs", "قيد المعالجة", Modifier.weight(1f))
+            StatTile("$doneJobs", "تمت", Modifier.weight(1f))
         }
+        AppCard(Modifier.fillMaxWidth()) {
+            ActionRow(Icons.Default.History, "المعالجة والسجل", if (activeJobs > 0) "$activeJobs في الطابور حاليًا" else "الطابور والنتائج الجاهزة", activeJobs, onQueue)
+            HorizontalDivider(Modifier.padding(horizontal = Sp.lg), color = cs.outlineVariant)
+            ActionRow(Icons.Default.Settings, "الإعدادات", "مجلد الحفظ وسجل الأخطاء", 0, onSettings)
+        }
+        Banner(BannerKind.Info, "نصيحة: اضغط «فحص» على أي فيديو قبل التجهيز عشان تعرف مشاكله (معدل إطارات متغير، أشرطة، علامات).")
     }
 }
 
@@ -135,7 +151,7 @@ fun VideosScreen(vm: VideosViewModel, onBack: () -> Unit, onAnalyze: (VideoInfo)
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("الفيديوهات (${vm.selected.size}/${vm.videos.size})") },
+                title = { Text(if (vm.videos.isEmpty()) "الفيديوهات" else "الفيديوهات (${vm.selected.size}/${vm.videos.size})") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "رجوع") } },
                 actions = {
                     if (vm.videos.isNotEmpty()) {
@@ -156,6 +172,7 @@ fun VideosScreen(vm: VideosViewModel, onBack: () -> Unit, onAnalyze: (VideoInfo)
                 text = { Text("إضافة فيديو") },
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary,
+                elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),
             )
         },
         snackbarHost = { SnackbarHost(snack) }
@@ -165,7 +182,7 @@ fun VideosScreen(vm: VideosViewModel, onBack: () -> Unit, onAnalyze: (VideoInfo)
                 EmptyState(Icons.Default.VideoLibrary, "لسه مفيش فيديوهات", "اضغط «إضافة فيديو» واختار من هاتفك. تقدر تختار أكتر من فيديو مرة واحدة.",
                     Modifier.align(Alignment.Center))
             }
-            LazyColumn(contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 112.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            LazyColumn(contentPadding = PaddingValues(Sp.lg, Sp.sm, Sp.lg, 112.dp), verticalArrangement = Arrangement.spacedBy(Sp.md)) {
                 items(vm.videos, key = { it.uri.toString() }) { v ->
                     VideoRow(v, v.uri in vm.selected, { onAnalyze(v) }, { onEdit(v) }) { vm.toggle(v.uri) }
                 }
@@ -181,11 +198,11 @@ fun VideoRow(v: VideoInfo, checked: Boolean, onAnalyze: () -> Unit, onEdit: () -
     Card(
         Modifier.fillMaxWidth().clip(MaterialTheme.shapes.large).clickable(onClick = onToggle),
         shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = if (checked) cs.primaryContainer.copy(alpha = 0.5f) else cs.surface),
-        border = if (checked) BorderStroke(2.dp, cs.primary) else BorderStroke(1.dp, cs.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = if (checked) cs.primaryContainer.copy(alpha = 0.45f) else cs.surface),
+        border = if (checked) BorderStroke(1.5.dp, cs.primary) else BorderStroke(1.dp, cs.outlineVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(Sp.md), verticalArrangement = Arrangement.spacedBy(Sp.md)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box {
                     Thumb(v.uri, 88.dp)
@@ -198,17 +215,17 @@ fun VideoRow(v: VideoInfo, checked: Boolean, onAnalyze: () -> Unit, onEdit: () -
                         contentAlignment = Alignment.Center
                     ) { Icon(Icons.Default.Check, null, Modifier.size(15.dp), tint = cs.onPrimary) }
                 }
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(Sp.md))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(v.name, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
                     Text("${v.resolution} • ${v.fpsText}", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Pill(v.sizeText, cs.surfaceVariant, cs.onSurfaceVariant)
-                        Pill(if (v.isPortrait) "عمودي" else "أفقي", cs.secondaryContainer, cs.onSecondaryContainer)
+                        Pill(if (v.isPortrait) "عمودي" else "أفقي", cs.surfaceVariant, cs.onSurfaceVariant)
                     }
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(Sp.sm)) {
                 OutlinedButton(onClick = onAnalyze, Modifier.weight(1f)) {
                     Icon(Icons.Default.Search, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("فحص")
                 }
@@ -235,7 +252,7 @@ fun Thumb(uri: Uri, size: Dp = 72.dp) {
             } catch (e: Exception) { null } finally { r.release() }
         }
     }
-    Box(Modifier.size(size).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceVariant), Alignment.Center) {
+    Box(Modifier.size(size).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant), Alignment.Center) {
         bmp?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
             ?: Icon(Icons.Default.Movie, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }

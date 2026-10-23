@@ -91,7 +91,7 @@ fun WatermarkScreen(info: VideoInfo, s: ExportSettings, wm: Watermark, onChange:
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("اسحب على المعاينة لتحريك العنصر المحدد:", style = MaterialTheme.typography.bodySmall)
                 Chips(listOf(0, 1), target, { if (it == 0) "النص" else "الشعار" }, true) { target = it }
-                Text("تنبيه: تطبيق TikTok بيغطي أسفل الشاشة والجانب بأزراره؛ الأفضل العلامة في الأعلى.", style = MaterialTheme.typography.bodySmall)
+                Banner(BannerKind.Info, "تطبيق TikTok بيغطي أسفل الشاشة والجانب بأزراره؛ الأفضل تحط العلامة في الأعلى.")
 
                 if (target == 0) {
                     OutlinedTextField(wm.text, { upd(wm.copy(text = it)) }, Modifier.fillMaxWidth(),

@@ -3,17 +3,28 @@ package com.tiktokstudio.app
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -23,7 +34,7 @@ import androidx.documentfile.provider.DocumentFile
 import java.io.File
 
 private fun statusText(s: JobStatus) = when (s) {
-    JobStatus.QUEUED -> "في الانتظار"; JobStatus.RUNNING -> "جاري المعالجة"; JobStatus.DONE -> "تمت ✓"
+    JobStatus.QUEUED -> "في الانتظار"; JobStatus.RUNNING -> "جاري المعالجة"; JobStatus.DONE -> "تمت"
     JobStatus.FAILED -> "فشلت"; JobStatus.CANCELLED -> "اتلغت"
 }
 
@@ -35,7 +46,8 @@ fun QueueScreen(onBack: () -> Unit, onCompare: (ExportJob) -> Unit) {
     val active = QueueManager.jobs.filter { it.status == JobStatus.QUEUED || it.status == JobStatus.RUNNING }
     val history = QueueManager.jobs.filter { it.status != JobStatus.QUEUED && it.status != JobStatus.RUNNING }.reversed()
     Scaffold(topBar = {
-        TopAppBar(title = { Text("المعالجة والسجل" ) },
+        TopAppBar(
+            title = { Text("المعالجة والسجل") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "رجوع") } },
             actions = {
                 if (tab == 0 && active.isNotEmpty()) TextButton(onClick = { QueueManager.cancelAll() }) { Text("إلغاء الكل") }
@@ -43,23 +55,25 @@ fun QueueScreen(onBack: () -> Unit, onCompare: (ExportJob) -> Unit) {
             })
     }) { pad ->
         Column(Modifier.padding(pad)) {
-            TabRow(selectedTabIndex = tab) {
+            TabRow(selectedTabIndex = tab, containerColor = MaterialTheme.colorScheme.background) {
                 Tab(tab == 0, { tab = 0 }, text = { Text("الطابور (${active.size})") })
                 Tab(tab == 1, { tab = 1 }, text = { Text("السجل (${history.size})") })
             }
-            if (tab == 0) {
-                if (QueueManager.interruptedCount > 0 && !QueueManager.running)
-                    Text("فيه ${QueueManager.interruptedCount} مهمة اتقطعت بعد غلق التطبيق. الاستئناف هيبدأ كل مهمة من الأول.",
-                        Modifier.padding(12.dp), color = MaterialTheme.colorScheme.error)
-                if (active.any { it.status == JobStatus.QUEUED } && !QueueManager.running)
-                    Button(onClick = { ExportService.start(ctx) }, Modifier.fillMaxWidth().padding(12.dp)) {
+            val list = if (tab == 0) active else history
+            LazyColumn(contentPadding = PaddingValues(Sp.lg), verticalArrangement = Arrangement.spacedBy(Sp.md)) {
+                if (tab == 0 && QueueManager.interruptedCount > 0 && !QueueManager.running) item {
+                    Banner(BannerKind.Warning, "فيه ${QueueManager.interruptedCount} مهمة اتقطعت بعد غلق التطبيق. الاستئناف هيبدأ كل مهمة من الأول.")
+                }
+                if (tab == 0 && active.any { it.status == JobStatus.QUEUED } && !QueueManager.running) item {
+                    Button(onClick = { ExportService.start(ctx) }, Modifier.fillMaxWidth().height(52.dp)) {
+                        Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(6.dp))
                         Text(if (QueueManager.interruptedCount > 0) "استئناف المهام" else "بدء المعالجة")
                     }
-            }
-            val list = if (tab == 0) active else history
-            if (list.isEmpty()) EmptyState(Icons.Default.History, if (tab == 0) "الطابور فاضي" else "السجل فاضي",
-                if (tab == 0) "أضف فيديوهات من شاشة التجهيز وهتظهر هنا." else "نتايج المعالجة هتظهر هنا.")
-            LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                }
+                if (list.isEmpty()) item {
+                    EmptyState(Icons.Default.History, if (tab == 0) "الطابور فاضي" else "السجل فاضي",
+                        if (tab == 0) "أضف فيديوهات من شاشة التجهيز وهتظهر هنا." else "نتايج المعالجة هتظهر هنا.")
+                }
                 items(list, key = { it.id }) { JobCard(it, onCompare) }
             }
         }
@@ -67,34 +81,58 @@ fun QueueScreen(onBack: () -> Unit, onCompare: (ExportJob) -> Unit) {
 }
 
 @Composable
+private fun StatusPill(s: JobStatus) {
+    val cs = MaterialTheme.colorScheme
+    val (bg, fg) = when (s) {
+        JobStatus.QUEUED -> cs.surfaceVariant to cs.onSurfaceVariant
+        JobStatus.RUNNING -> cs.primaryContainer to cs.onPrimaryContainer
+        JobStatus.DONE -> cs.tertiaryContainer to cs.onTertiaryContainer
+        JobStatus.FAILED -> cs.errorContainer to cs.onErrorContainer
+        JobStatus.CANCELLED -> cs.surfaceVariant to cs.onSurfaceVariant
+    }
+    Pill(statusText(s), bg, fg)
+}
+
+@Composable
 fun JobCard(j: ExportJob, onCompare: (ExportJob) -> Unit) {
     val ctx = LocalContext.current
-    val err = MaterialTheme.colorScheme.error
-    AppCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(j.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            StatusPill(j.status)
+    val cs = MaterialTheme.colorScheme
+    val progress by animateFloatAsState(j.progress, label = "progress")
+    AppCard(Modifier.fillMaxWidth().animateContentSize()) {
+        Column(Modifier.padding(Sp.lg), verticalArrangement = Arrangement.spacedBy(Sp.sm)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Sp.sm)) {
+                Text(j.name, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                StatusPill(j.status)
+            }
             when (j.status) {
                 JobStatus.RUNNING -> {
-                    LinearProgressIndicator(progress = { j.progress }, Modifier.fillMaxWidth())
-                    Text("${(j.progress * 100).toInt()}% • المنقضي ${formatDuration(j.elapsedMs)}" + (j.etaMs?.let { " • المتبقي ~${formatDuration(it)}" } ?: ""))
-                    j.message?.let { Text(it) }
-                    j.warning?.let { Text("⚠ $it", color = err) }
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                        trackColor = cs.surfaceVariant)
+                    Text("${(j.progress * 100).toInt()}% • المنقضي ${formatDuration(j.elapsedMs)}" + (j.etaMs?.let { " • المتبقي ~${formatDuration(it)}" } ?: ""),
+                        style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                    j.message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    j.warning?.let { Banner(BannerKind.Warning, it) }
                 }
-                JobStatus.QUEUED -> j.message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                JobStatus.QUEUED -> j.message?.let { Banner(BannerKind.Info, it) }
                 JobStatus.DONE -> {
-                    j.summary?.let { Text(it) }
-                    j.warnings.forEach { Text("⚠ $it", color = err) }
-                    if (j.warnings.isEmpty()) Text("اجتاز الفحص الأساسي (فتح الملف، المدة، الإطارات، الصوت). جرّبه على أكتر من مشغل.", style = MaterialTheme.typography.bodySmall)
+                    j.summary?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant) }
+                    if (j.warnings.isEmpty()) Banner(BannerKind.Success, "اجتاز الفحص الأساسي (فتح الملف، المدة، الإطارات، الصوت). جرّبه على أكتر من مشغل.")
+                    else j.warnings.forEach { Banner(BannerKind.Warning, it) }
                     j.outUri?.let { u ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { openVideo(ctx, Uri.parse(u)) }) { Text("تشغيل") }
-                            OutlinedButton(onClick = { shareVideo(ctx, Uri.parse(u)) }) { Text("مشاركة") }
-                            OutlinedButton(onClick = { onCompare(j) }) { Text("مقارنة") }
+                        Row(horizontalArrangement = Arrangement.spacedBy(Sp.sm), verticalAlignment = Alignment.CenterVertically) {
+                            Button(onClick = { openVideo(ctx, Uri.parse(u)) }, Modifier.weight(1f)) {
+                                Icon(Icons.Default.PlayArrow, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("تشغيل")
+                            }
+                            OutlinedButton(onClick = { shareVideo(ctx, Uri.parse(u)) }, Modifier.weight(1f)) {
+                                Icon(Icons.Default.Share, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("مشاركة")
+                            }
+                            TextButton(onClick = { onCompare(j) }) { Text("مقارنة") }
                         }
                     }
                 }
-                JobStatus.FAILED -> j.message?.let { Text(it, color = err) }
+                JobStatus.FAILED -> j.message?.let { Banner(BannerKind.Error, it) }
                 JobStatus.CANCELLED -> {}
             }
             Row {
@@ -111,6 +149,7 @@ fun JobCard(j: ExportJob, onCompare: (ExportJob) -> Unit) {
 @Composable
 fun SettingsScreen(onBack: () -> Unit) {
     val ctx = LocalContext.current
+    val cs = MaterialTheme.colorScheme
     var tree by remember { mutableStateOf(Prefs.outTree(ctx)) }
     var cleaned by remember { mutableStateOf<String?>(null) }
     var logText by remember { mutableStateOf(File(ctx.filesDir, "errors.log").takeIf { it.exists() }?.readText()?.takeLast(4000) ?: "") }
@@ -122,51 +161,40 @@ fun SettingsScreen(onBack: () -> Unit) {
         }
     }
     Scaffold(topBar = {
-        TopAppBar(title = { Text("الإعدادات" ) },
+        TopAppBar(title = { Text("الإعدادات") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "رجوع") } })
     }) { pad ->
-        Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Sec("مكان حفظ الملفات")
-            Text("المجلد الحالي: " + (tree?.let { DocumentFile.fromTreeUri(ctx, it)?.name } ?: "لم يتم الاختيار"))
-            Button(onClick = { picker.launch(null) }) { Text("اختيار / تغيير المجلد") }
-            Text("الملفات الأصلية مبتتغيّرش ولا بتتحذف أبدًا.", style = MaterialTheme.typography.bodySmall)
-
-            Sec("الملفات المؤقتة")
-            OutlinedButton(onClick = {
-                var n = 0L
-                ctx.cacheDir.listFiles()?.filter { it.name.startsWith("job_") }?.forEach { n += it.length(); it.delete() }
-                cleaned = "اتمسح ${formatSize(n)}"
-            }, enabled = !QueueManager.running) { Text("مسح الملفات المؤقتة") }
-            cleaned?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-
-            Sec("سجل الأخطاء")
-            if (logText.isBlank()) Text("مفيش أخطاء مسجّلة.", style = MaterialTheme.typography.bodySmall)
-            else {
-                Text(logText, style = MaterialTheme.typography.bodySmall)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { clip.setText(AnnotatedString(logText)) }) { Text("نسخ") }
-                    OutlinedButton(onClick = { File(ctx.filesDir, "errors.log").delete(); logText = "" }) { Text("مسح") }
+        Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(Sp.lg), verticalArrangement = Arrangement.spacedBy(Sp.lg)) {
+            Panel("مكان حفظ الملفات", Icons.Default.Folder) {
+                KV("المجلد الحالي", tree?.let { DocumentFile.fromTreeUri(ctx, it)?.name } ?: "لم يتم الاختيار")
+                Button(onClick = { picker.launch(null) }) { Text("اختيار / تغيير المجلد") }
+                Text("الملفات الأصلية مبتتغيّرش ولا بتتحذف أبدًا.", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+            }
+            Panel("الملفات المؤقتة", Icons.Default.Delete) {
+                OutlinedButton(onClick = {
+                    var n = 0L
+                    ctx.cacheDir.listFiles()?.filter { it.name.startsWith("job_") }?.forEach { n += it.length(); it.delete() }
+                    cleaned = "اتمسح ${formatSize(n)}"
+                }, enabled = !QueueManager.running) { Text("مسح الملفات المؤقتة") }
+                cleaned?.let { Banner(BannerKind.Success, it) }
+            }
+            Panel("سجل الأخطاء", Icons.Default.Warning) {
+                if (logText.isBlank()) Text("مفيش أخطاء مسجّلة.", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                else {
+                    Text(logText, style = MaterialTheme.typography.bodySmall)
+                    Row(horizontalArrangement = Arrangement.spacedBy(Sp.sm)) {
+                        OutlinedButton(onClick = { clip.setText(AnnotatedString(logText)) }) { Text("نسخ") }
+                        OutlinedButton(onClick = { File(ctx.filesDir, "errors.log").delete(); logText = "" }) { Text("مسح") }
+                    }
                 }
             }
-
-            Sec("حدود معروفة")
-            Text("• المعالجة بتكمل في الخلفية بخدمة أمامية، لكن لو التطبيق اتقفل بالقوة المهمة الجارية بتبدأ من الأول.\n" +
-                "• مفيش تحقق مضمون من جودة التشغيل على كل الأجهزة؛ جرّب الناتج على جهازك.\n" +
-                "• الفيديو HDR والـ VFR لسه ملهمش معالجة خاصة.\n" +
-                "• قرار التوصية في TikTok بيرجع للمنصة، ومفيش أداة بتضمنه.", style = MaterialTheme.typography.bodySmall)
+            Panel("حدود معروفة", Icons.Default.Info) {
+                Bullet("المعالجة بتكمل في الخلفية بخدمة أمامية، لكن لو التطبيق اتقفل بالقوة المهمة الجارية بتبدأ من الأول.")
+                Bullet("مفيش تحقق مضمون من جودة التشغيل على كل الأجهزة؛ جرّب الناتج على جهازك.")
+                Bullet("الفيديو HDR والـ VFR لسه ملهمش معالجة خاصة.")
+                Bullet("4K و60 fps و H.265 بتتوقف على قدرات مشفّر الجهاز؛ لو مش مدعومة بيتنزّل لأعلى اختيار متاح.")
+                Bullet("قرار التوصية في TikTok بيرجع للمنصة، ومفيش أداة بتضمنه.")
+            }
         }
     }
-}
-
-@Composable
-private fun StatusPill(s: JobStatus) {
-    val cs = MaterialTheme.colorScheme
-    val (bg, fg) = when (s) {
-        JobStatus.QUEUED -> cs.surfaceVariant to cs.onSurfaceVariant
-        JobStatus.RUNNING -> cs.primaryContainer to cs.onPrimaryContainer
-        JobStatus.DONE -> cs.tertiaryContainer to cs.onTertiaryContainer
-        JobStatus.FAILED -> cs.errorContainer to cs.onErrorContainer
-        JobStatus.CANCELLED -> cs.secondaryContainer to cs.onSecondaryContainer
-    }
-    Pill(statusText(s), bg, fg)
 }

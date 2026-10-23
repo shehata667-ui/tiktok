@@ -49,7 +49,7 @@ data class ExportJob(
 
 fun ExportSettings.toJson() = JSONObject().apply {
     put("preset", preset.name); put("mode", mode.name); put("cropPos", cropPos.toDouble()); put("rotation", rotation)
-    put("quality", quality.name); put("customMbps", customMbps.toDouble()); put("targetMb", targetMb)
+    put("quality", quality.name); put("codec", codec.name); put("customMbps", customMbps.toDouble()); put("targetMb", targetMb)
     put("fpsCap", fpsCap); put("cfrFps", cfrFps); put("stripMeta", stripMeta); put("trimStartMs", trimStartMs); put("trimEndMs", trimEndMs); put("mute", mute)
 }
 
@@ -58,6 +58,7 @@ fun settingsFromJson(o: JSONObject) = ExportSettings(
     mode = runCatching { FitMode.valueOf(o.getString("mode")) }.getOrDefault(FitMode.FILL),
     cropPos = o.optDouble("cropPos", 0.5).toFloat(), rotation = o.optInt("rotation"),
     quality = runCatching { Quality.valueOf(o.getString("quality")) }.getOrDefault(Quality.HIGH),
+    codec = runCatching { Codec.valueOf(o.getString("codec")) }.getOrDefault(Codec.AUTO),
     customMbps = o.optDouble("customMbps", 8.0).toFloat(), targetMb = o.optInt("targetMb", 30),
     fpsCap = o.optInt("fpsCap"), cfrFps = o.optInt("cfrFps"), stripMeta = o.optBoolean("stripMeta", true), trimStartMs = o.optLong("trimStartMs"), trimEndMs = o.optLong("trimEndMs"),
     mute = o.optBoolean("mute"),
